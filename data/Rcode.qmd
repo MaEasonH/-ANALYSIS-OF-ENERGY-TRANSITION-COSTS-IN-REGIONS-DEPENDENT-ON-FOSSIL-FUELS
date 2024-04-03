@@ -1,0 +1,605 @@
+---
+title: "Untitled"
+format: pdf
+editor: visual
+---
+
+```{r}
+#| echo: false
+#| warning: false
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+if (!requireNamespace("tidyr", quietly = TRUE)) install.packages("tidyr")
+if (!requireNamespace("lmtest", quietly = TRUE)) install.packages("lmtest")
+if (!requireNamespace("sandwich", quietly = TRUE)) install.packages("sandwich")
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("mice", quietly = TRUE)) install.packages("mice")
+if(!require(egg)) install.packages("egg")
+if(!require(stargazer)) install.packages("stargazer")
+if(!require(gt)) install.packages("gt")
+if(!require(webshot)) install.packages("webshot")
+library(gt)
+library(webshot)
+library(stargazer)
+library(egg)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(lmtest)
+library(sandwich)
+library(ggplot2)
+library(mice)
+
+```
+
+
+
+
+```{r}
+data <- read.csv("403data.csv")
+filtered_data <- data %>% 
+  filter(Indicators %in% c('PM2.5 index', 'Gross Regional Product(100 million yuan)'))
+
+reshaped_data <- filtered_data %>%
+  pivot_wider(names_from = Indicators, values_from = Value) %>%
+  # Ensure all necessary columns are numeric for correlation
+  mutate_at(vars(`PM2.5 index`, `Gross Regional Product(100 million yuan)`), as.numeric)
+
+
+
+correlation_result <- cor(reshaped_data$`PM2.5 index`, reshaped_data$`Gross Regional Product(100 million yuan)`, use = "complete.obs")
+
+print(correlation_result)
+```
+
+
+
+```{r}
+data <- read.csv("403data.csv")
+filtered_data <- data %>% 
+  filter(Indicators %in% c('Local Governments Expenditure Environmental Protection(100 million yuan)', 'Gross Regional Product(100 million yuan)'))
+
+reshaped_data <- filtered_data %>%
+  pivot_wider(names_from = Indicators, values_from = Value) %>%
+  # Ensure all necessary columns are numeric for correlation
+  mutate_at(vars(`Local Governments Expenditure Environmental Protection(100 million yuan)`, `Gross Regional Product(100 million yuan)`), as.numeric)
+
+
+correlation_result <- cor(reshaped_data$`Local Governments Expenditure Environmental Protection(100 million yuan)`, reshaped_data$`Gross Regional Product(100 million yuan)`, use = "complete.obs")
+
+print(correlation_result)
+```
+
+
+
+```{r}
+data <- read.csv("403data.csv")
+filtered_data <- data %>% 
+  filter(Indicators %in% c('Local Governments Expenditure Environmental Protection(100 million yuan)', 'PM2.5 index'))
+
+reshaped_data <- filtered_data %>%
+  pivot_wider(names_from = Indicators, values_from = Value) %>%
+  # Ensure all necessary columns are numeric for correlation
+  mutate_at(vars(`Local Governments Expenditure Environmental Protection(100 million yuan)`, `PM2.5 index`), as.numeric)
+
+
+correlation_result <- cor(reshaped_data$`Local Governments Expenditure Environmental Protection(100 million yuan)`, reshaped_data$`PM2.5 index`, use = "complete.obs")
+
+print(correlation_result)
+```
+
+
+
+```{r}
+data <- read.csv("403data.csv")
+
+
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)`+ Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g1 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="Sensitivity Analysis: GRP and Environmental Factors",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g1)
+
+model_summary <- summary(did_model)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 3",
+    subtitle = "Sensitivity analysis"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP and Environmental Factors",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1, it shows the Sensitivity Analysis not include all control variable PM2.5 index and regional government expenditures on environmental protection",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table3.html")
+webshot("table3.html", "table3.png", delay = 2)
+```
+
+
+```{r}
+data <- read.csv("403data.csv")
+
+
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)` + `PM2.5 index` +`Local Governments Expenditure Environmental Protection(100 million yuan)`+ Year, data = data_wide)
+
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)` + `PM2.5 index`+`Local Governments Expenditure Environmental Protection(100 million yuan)`, data = filter(data_wide, Year <= 2014))
+
+
+g2 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Environmental Factors",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+
+
+model_summary <- summary(did_model)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 1",
+    subtitle = "Comprehensive Analysis for Zhe"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP and Environmental Factors",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1, it shows the Comprehensive DiD analysis comparing all factors and GRP for treatment grout Zhejiang",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table.html")
+webshot("table.html", "table.png", delay = 2)
+```
+
+
+```{r}
+data <- read.csv("403data.csv")
+
+
+# Transform data from long to wide format
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+# Filter for Liaoning province
+data_liaoning <- data_wide %>% filter(Province == "Liaoning")
+
+# Example analysis on the Gross Regional Product for Liaoning province
+grp_model_liaoning <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)` + `PM2.5 index` +`Local Governments Expenditure Environmental Protection(100 million yuan)`+ Year, data = data_wide)
+summary(grp_model_liaoning)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Consumption of Coal(10000 tons)` + `Consumption of Coke(10000 tons)` + `Consumption of Electricity(100 million kwh)` + `Investment in Energy Industry(100 million yuan)` + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + `Sulphur Dioxide Emission in Waste Gas(10000 tons)` + `PM2.5 index`+`Local Governments Expenditure Environmental Protection(100 million yuan)`, data = filter(data_wide, Year <= 2014))
+
+g11 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and GRP",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g11)
+
+model_summary <- summary(grp_model_liaoning)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 2",
+    subtitle = "Comprehensive DiD analysis for Liaoning"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP and Environmental Factors",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1,it shows the Comprehensive DiD analysis comparing all factors and GRP for control group grout Liaoning",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table2.html")
+webshot("table2.html", "table2.png", delay = 2)
+
+```
+
+
+
+
+
+
+
+## Consumption of Coal(10000 tons)
+
+```{r}
+#| echo: false
+#| warning: false
+data <- read.csv("403data.csv")
+
+
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Consumption of Coal(10000 tons)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Consumption of Coal(10000 tons)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g3 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Consumption of Coal(10000 tons)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g3)
+```
+
+## Investment Completed in the Treatment of Industrial Pollution(10000 yuan)
+
+```{r}
+#| echo: false
+#| warning: false
+data <- read.csv("403data.csv")
+
+
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Investment Completed in the Treatment of Industrial Pollution(10000 yuan)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g4 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Investment Completed in the Treatment of Industrial Pollution(10000 yuan)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g4)
+
+model_summary <- summary(did_model)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 4",
+    subtitle = "Separate Analysis"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP and Investment Completed in the Treatment of Industrial Pollution",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1, it shows the Separate DID Analysis only comparing variable GRP and Investment Completed in the Treatment of Industrial Pollution",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table4.html")
+webshot("table4.html", "table4.png", delay = 2)
+```
+
+## Investment Completed in the Treatment of Waste Gas(10000 yuan)
+
+```{r}
+#| echo: false
+#| warning: false
+data <- read.csv("403data.csv")
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Investment Completed in the Treatment of Waste Gas(10000 yuan)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Investment Completed in the Treatment of Waste Gas(10000 yuan)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g5 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Investment Completed in the Treatment of Waste Gas(10000 yuan)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g5)
+```
+
+## Investment in Energy Industry(100 million yuan)
+
+```{r}
+#| echo: false
+#| warning: false
+data <- read.csv("403data.csv")
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Investment in Energy Industry(100 million yuan)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Investment in Energy Industry(100 million yuan)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g6 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Investment in Energy Industry(100 million yuan)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g6)
+```
+
+## Consumption of Electricity(100 million kwh)
+
+```{r}
+data <- read.csv("403data.csv")
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Consumption of Electricity(100 million kwh)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Consumption of Electricity(100 million kwh)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g7 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="Separate Analysis: GRP and Consumption of Electricity(100 million kwh)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g7)
+
+model_summary <- summary(did_model)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 5",
+    subtitle = "Separate Analysis"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP and Consumption of Electricity",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1, it shows the Separate DID Analysis only comparing variable GRP and Consumption of Electricity",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table5.html")
+webshot("table5.html", "table5.png", delay = 2)
+```
+
+## Sulphur Dioxide Emission in Waste Gas(10000 tons)
+
+```{r}
+data <- read.csv("403data.csv")
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + `Sulphur Dioxide Emission in Waste Gas(10000 tons)` + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year + `Sulphur Dioxide Emission in Waste Gas(10000 tons)`, data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g9 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and Sulphur Dioxide Emission in Waste Gas(10000 tons)",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g9)
+```
+
+## GRP itself
+
+```{r}
+data <- read.csv("403data.csv")
+
+data_wide <- data %>%
+  spread(key = Indicators, value = Value)
+
+
+data_wide <- data_wide %>%
+  mutate(treatment = if_else(Province == "Liaoning", 1, 0),
+         post_treatment = if_else(Year > 2014, 1, 0))
+
+
+did_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*post_treatment + Year, data = data_wide)
+summary(did_model)
+
+parallel_trends_model <- lm(`Gross Regional Product(100 million yuan)` ~ treatment*Year , data = filter(data_wide, Year <= 2014))
+summary(parallel_trends_model)
+
+g10 <- ggplot(data_wide, aes(x=Year, y=`Gross Regional Product(100 million yuan)`, color=factor(treatment))) +
+  geom_line() +
+  geom_point() +
+  labs(title="DID Analysis: GRP and GRP",
+       x="Year",
+       y="Gross Regional Product (100 million yuan)",
+       color="Treatment Group") +
+  theme_minimal()
+print(g10)
+
+model_summary <- summary(did_model)$coefficients  
+model_summary_df <- as.data.frame(model_summary)  
+
+colnames(model_summary_df) <- c("Estimate", "Std. Error", "t value", "Pr(>|t|)")
+
+model_summary_df$Term <- rownames(model_summary_df)
+
+gt_table <- model_summary_df %>% 
+  gt() %>% 
+  tab_header(
+    title = "Table 6",
+    subtitle = "Separate DID"
+  ) %>%
+  fmt_number(
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`),
+    decimals = 4
+  ) %>%
+  tab_spanner(
+    label = "GRP without other variable",
+    columns = vars(Estimate, `Std. Error`, `t value`, `Pr(>|t|)`)
+  ) %>%
+  tab_footnote(
+    footnote = "Note: *** p < 0.01, ** p < 0.05, * p < 0.1, it shows the Separate DID Analysis only comparing GRP with no other chosen variable",
+    locations = cells_body(columns = vars(`Pr(>|t|)`), rows = model_summary_df$`Pr(>|t|)` < 0.1)
+  )
+
+print(gt_table)
+gtsave(gt_table, "table6.html")
+webshot("table6.html", "table6.png", delay = 2)
+```
+
+
