@@ -13,4 +13,4 @@ The repo is structured as:
 
 ## Statement on LLM usage
 
-LLM was used contains in LLM text.
+LLM was not used.
